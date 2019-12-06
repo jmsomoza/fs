@@ -531,7 +531,6 @@ void fs_resize(char name[5], int new_size){
  * @brief Function to reorganize file blocks to reduce fragmentation (no free blocks between used blocks)
  */
 void fs_defrag(void){
-	int cur = cwd; // save actual current working directory
 	char * dir;
 	if ( cwd == 127 ) { dir = root; } else { dir = superblock->inode[cwd].name; }
 	std::map<int, int> block_map = std::map<int, int>(); // ordered map of start block and inode number to start from files with lowest start_block
@@ -542,14 +541,29 @@ void fs_defrag(void){
 	}
 	std::map<int, int>::iterator it;
 	for(it = block_map.begin(); it!=block_map.end(); it++){
-		if(check_dir_names(dir, superblock->inode[it->second].name)!=-1){ // if file name is found in the current working directory
-			fs_resize(superblock->inode[it->second].name, (superblock->inode[it->second].used_size & 127));
-		} else {
-			cwd = (superblock->inode[it->second].dir_parent & 127); // change current working directory to perform resize
-			fs_resize(superblock->inode[it->second].name, (superblock->inode[it->second].used_size & 127));
+		int new_start_block = 0;
+		int start_block = (superblock->inode[(it->second)].used_size & 127);
+		int block = 0;
+		int size = (superblock->inode[(it->second)].used_size & 127);
+		for (int i=0; i<16; i++){ // check each block in free block list
+			for(int j=0; j<8; j++){
+				if (!((superblock->free_block_list[i] >> (7-j)) & 1) && new_start_block == 0) { new_start_block = block;  }
+			}
 		}
+		for (int i=0; i<size; i++){
+			memcpy(blocks[new_start_block+i].block, blocks[(it->first)+i].block, 1024); // move data blocks
+			if ((new_start_block+size) < (start_block+size) && (new_start_block+size)>(start_block)){ //overlap
+				for (int j=0; j<(start_block-new_start_block); j++){
+					clear_block(new_start_block+size+j);
+				}
+			} else {
+				clear_block(start_block+i);
+			}
+			superblock->free_block_list[(int)((start_block+i)/8)] = setBit(superblock->free_block_list[(int)((start_block+i)/8)], ((start_block+i)%8)+1, 0);
+		}
+		// set free block list
+		for (int i=0; i<size; i++){ superblock->free_block_list[(int)((new_start_block+i)/8)] = setBit(superblock->free_block_list[(int)((new_start_block+i)/8)], ((start_block+i)%8)+1, 1); } 
 	}
-	cwd = cur;
 }
 
  /**
