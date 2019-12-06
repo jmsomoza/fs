@@ -531,8 +531,6 @@ void fs_resize(char name[5], int new_size){
  * @brief Function to reorganize file blocks to reduce fragmentation (no free blocks between used blocks)
  */
 void fs_defrag(void){
-	char * dir;
-	if ( cwd == 127 ) { dir = root; } else { dir = superblock->inode[cwd].name; }
 	std::map<int, int> block_map = std::map<int, int>(); // ordered map of start block and inode number to start from files with lowest start_block
 	for (int i=0; i<126; i++){ // populate the map
 		if((superblock->inode[i].used_size & 128)!=0 && (superblock->inode[i].dir_parent & 128)==0){
