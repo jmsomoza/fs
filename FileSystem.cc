@@ -22,17 +22,16 @@ typedef struct {
 	Inode inode[126];
 } Super_block;
 
-typedef struct { uint8_t block[1024]; } Block;
-
-Block blocks[127];
-uint8_t buffer[1024];
-char * input_file;
-char * disk;
-int line_no;
-int cwd;
+typedef struct { uint8_t block[1024]; } Block; 
+Block blocks[127]; // Holds representation of the disk data blocks
+uint8_t buffer[1024]; // Data buffer for read/write operations
+char * input_file; // Input filename for running file system commands
+char * disk; // Name of mounted disk
+int line_no; // Input file line number for error handling
+int cwd; // Current working directory
 char root[5] = "root";
-std::map<char *, std::vector<int>> dir_names;
-Super_block * superblock;
+std::map<char *, std::vector<int>> dir_names; // Map to store parent directory names and its children
+Super_block * superblock; 
 
 void init(){
 	disk = (char*)malloc(sizeof(uint8_t) * 20);
@@ -40,6 +39,14 @@ void init(){
 	line_no = 0;
 }
 
+/**
+ * @brief Function to set the ith bit of a byte
+ *
+ * @param ch - The unsigned char containing the bit to be set
+ * @param i - bit offset
+ * @param val - The value to be set(1 or 0)
+ * @return The new byte with modified bit
+ */
 unsigned char setBit(unsigned char ch, int i, int val ){
 	i = 8-i;
 	unsigned char mask = 1 << i ;
@@ -50,6 +57,11 @@ unsigned char setBit(unsigned char ch, int i, int val ){
 	}
 } 
 
+/**
+ * @brief Function to zero out the members of an inode
+ *
+ * @param index - Inode index
+ */
 void clear_inode(int index){
 	char mask[5] =  {'\0', '\0', '\0', '\0', '\0'};
 	memcpy(superblock->inode[index].name, mask, 5);
@@ -58,15 +70,33 @@ void clear_inode(int index){
 	superblock->inode[index].start_block = 0;
 }
 
+/**
+ * @brief Function to zero out data block
+ *
+ * @param index - block number
+ */
 void clear_block(int index){
 	uint8_t mask[1024] = "";
 	memcpy(blocks[index].block, mask, 1024);
 }
 
+/**
+ * @brief Checks if inode represents a director
+ *
+ * @param index - Inode index
+ * @return Boolean true if inode is a directory
+ */
 bool isDir(int index){
 	return ((superblock->inode[index].dir_parent & 128) == 128);
 }
 
+/**
+ * @brief Checks if the given file or directory name exists within the given directory name
+ *
+ * @param dir - directory name
+ * @param name - file or directory name
+ * @return Inode index of the file/directory name or -1 if not found
+ */
 int check_dir_names(char * dir, char * name){
 	std::map<char *, std::vector<int>>::iterator dir_it;
 	std::vector<char *> names; // each dir has vector of file names
@@ -81,6 +111,11 @@ int check_dir_names(char * dir, char * name){
 	return -1;
 }
 
+/**
+ * @brief Writes data to the mounted disk. Called after every write operation
+ *
+ * @param disk_name - name of the disk to write to
+ */
 void write_to_disk(char *disk_name){
 	// update disk contents
 	ofstream fs;
@@ -107,9 +142,14 @@ void write_to_disk(char *disk_name){
 	}
 }
 
+/**
+ * @brief Function to mount the disk. Loads the disk superblock and performs six consistency checks and error handling. 
+ *
+ * @param new_disk_name - name of the disk to mount
+ */
 void fs_mount(char *new_disk_name){
 	if (strlen(disk)!=0) { write_to_disk(disk); }
-	dir_names.empty();
+	dir_names.empty(); 
 	Super_block * loaded_superblock = new Super_block();
 	int constraint = 0;
 	ifstream fs;
@@ -138,7 +178,7 @@ void fs_mount(char *new_disk_name){
 			for (int j = 0; j<size; j++){
 				unsigned char prev = free_block_check[(int)((loaded_superblock->inode[i].start_block+j)/8)];
 				unsigned char next = setBit(free_block_check[(int)((loaded_superblock->inode[i].start_block+j)/8)], ((loaded_superblock->inode[i].start_block+j)%8)+1, 1);
-				if(prev == next){
+				if(prev == next){ // to ensure multiple files are not allocated to the same block
 					constraint=1;
 				} else {
 					free_block_check[(int)((loaded_superblock->inode[i].start_block+j)/8)] = 
@@ -243,14 +283,14 @@ void fs_mount(char *new_disk_name){
 		}
 	}
 
-	if(constraint!=0){
+	if(constraint!=0){ // Error handling
 		fprintf(stderr, "Error: File system in %s is inconsistent (error code: %i)\n", new_disk_name, constraint);
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
-	} else {
+	} else { // load superblock, set mounted disk name and set current working directory to root
 		char block_buffer[1024];
 		strcpy(disk, new_disk_name);
 		superblock = loaded_superblock;
-		for(int i=0; i<127; i++){
+		for(int i=0; i<127; i++){ // copy disk data blocks
 			fs.read(block_buffer, 1024);
 			memcpy(blocks[i].block, block_buffer, 1024);
 		}
@@ -260,6 +300,12 @@ void fs_mount(char *new_disk_name){
 
 }
 
+/**
+ * @brief Function to create a new file or directory (if size is 0) in the current working directory
+ *
+ * @param name - file/directory name
+ * @param size - file size
+ */
 void fs_create(char name[5], int size){
 	int index = 127;
 	int exists = -1;
@@ -267,13 +313,13 @@ void fs_create(char name[5], int size){
 	for (int i=0; i<126; i++){
 		if (superblock->inode[i].used_size<128){ //inode is available
 			index = i;
-			break;
+			break; // use the first available inode
 		}
 	}
 	if (index == 127) { fprintf(stderr, "Error: Superblock in disk %s is full, cannot create %s\n", disk, name); return; }
 	else {
-		if (cwd == 127){ exists = check_dir_names(root, name); }
-		else { exists = check_dir_names(superblock->inode[cwd].name, name); }
+		if (cwd == 127){ exists = check_dir_names(root, name); } 
+		else { exists = check_dir_names(superblock->inode[cwd].name, name); } // check if filename exists in the current working directory
 		if (exists!=-1) { fprintf(stderr, "Error: File or directory %s already exists\n", name); }
 		else { //create the file or dir
 			clear_inode(index);
@@ -286,30 +332,37 @@ void fs_create(char name[5], int size){
 				int count = 0;
 				int block = 0; 
 				int start_block = 0;
-				for (int i=0; i<16; i++){ // check each block in free block list
+				for (int i=0; i<16; i++){ // check contiguous free blocks in free block list of size 
 					for (int j=0; j<8; j++){
 						if (!(superblock->free_block_list[i] >> (7-j)) & 1) { count +=1; } else { count = 0; }
 						block +=1;
-						if (count == size ) { space = true; start_block = block-size+1; break; }
+						if (count == size ) { space = true; start_block = block-size+1; break; } // found space
 					}
 				}
 				if (!space) { fprintf(stderr, "Error: Cannot allocate %i KB on %s\n", size, disk); }
 				else {
+					// set inode attributes
 					memcpy(superblock->inode[index].name, name, 5);
 					superblock->inode[index].used_size = size | 128;
 					superblock->inode[index].dir_parent = cwd;
 					superblock->inode[index].start_block = start_block;
-					for(int j=0; j<size; j++){
+					for(int j=0; j<size; j++){ // update free block list
 						superblock->free_block_list[(int)((start_block+j)/8)] = setBit(superblock->free_block_list[(int)((start_block+j)/8)], ((start_block+j)%8)+1, 1);
 					}
 				}
 			}
+			// update map of parent directories to include new inode
 			if ( cwd==127 ){ dir_names[root].push_back(index); }  else { dir_names[superblock->inode[cwd].name].push_back(index); }
 
 		}
 	}
 }
 
+/**
+ * @brief Function to delete a file or directory and its files recursively, within the current working directory
+ *
+ * @param name - file/directory name
+ */
 void fs_delete(char name[5]){
 	int exists = -1;
 	char * dir;
@@ -318,18 +371,17 @@ void fs_delete(char name[5]){
 	if (exists == -1) { fprintf(stderr, "Error: File or directory %s does not exist\n", name); }
 	else {
 		if(isDir(exists)){ // if name is a dir
-			for(int i=0; i<(int)dir_names[name].size(); i++){
-
+			for(int i=0; i<(int)dir_names[name].size(); i++){ // delete its children recursively
 				fs_delete(superblock->inode[dir_names[name].at(i)].name);
 			}
-			dir_names.erase(name);
+			dir_names.erase(name); // remove from map of directory names
 			clear_inode(exists);
 		} else {
-			for (int i=0; i<(superblock->inode[exists].used_size & 127); i++){
+			for (int i=0; i<(superblock->inode[exists].used_size & 127); i++){ // update free block list and clear blocks
 				superblock->free_block_list[(int)((superblock->inode[exists].start_block+i)/8)] = setBit(superblock->free_block_list[(int)((superblock->inode[exists].start_block+i)/8)], ((superblock->inode[exists].start_block+i)%8)+1, 0);
 				clear_block(superblock->inode[exists].start_block+i);
 			}
-			for (int j=0; j<(int)dir_names[dir].size(); j++){
+			for (int j=0; j<(int)dir_names[dir].size(); j++){ // update map of directory names
 				if (dir_names[dir].at(j) == exists) { dir_names[dir].erase(dir_names[dir].begin()+j); }
 			}
 			clear_inode(exists);
@@ -337,6 +389,12 @@ void fs_delete(char name[5]){
 	}
 }
 
+/**
+ * @brief Function to read from a specified block from a file and writes the data into the buffer
+ *
+ * @param name - file name
+ * @param block_num - the nth block of the file
+ */
 void fs_read(char name[5], int block_num){
 	int exists = -1;
 	if (cwd==127) { exists = check_dir_names(root, name); }
@@ -352,6 +410,12 @@ void fs_read(char name[5], int block_num){
 	}
 }
 
+/**
+ * @brief Function to write the contents of the data buffer to a specified block of a file
+ *
+ * @param name - file name
+ * @param block_num - the nth block of the file
+ */
 void fs_write(char name[5], int block_num){
 	int exists = -1;
 	if (cwd==127) { exists = check_dir_names(root, name); }
@@ -367,12 +431,21 @@ void fs_write(char name[5], int block_num){
 	}
 }
 
+/**
+ * @brief Populates the buffer with given data
+ *
+ * @param buff - data buffer with contents to write into the file system buffer
+ */
 void fs_buff(uint8_t buff[1024]){
 	uint8_t b[1024] = "";
 	memcpy(buffer, b, sizeof(b));
 	memcpy(buffer, buff, 1024);
 }
 
+/**
+ * @brief Function to print out files and directories located in the current working directory. Files will display its size and
+ *  directories will display its number of children.
+ */
 void fs_ls(void){
 	int index;
 	char * cwd_name;
@@ -401,6 +474,13 @@ void fs_ls(void){
 	}
 }
 
+/**
+ * @brief Function to resize a file in the current working directory to a specified size. 
+ * If there are no sufficient free blocks after its allocated blocks, find contiguous free blocks of the specified size.
+ *
+ * @param name - filename to be resized
+ * @param new_size 
+ */
 void fs_resize(char name[5], int new_size){
 	int exists = -1;
 	int start_block = 0;		
@@ -409,14 +489,14 @@ void fs_resize(char name[5], int new_size){
 	if (exists==-1){ fprintf(stderr, "Error: File %s does not exist\n", name);}
 	else if (isDir(exists)){ fprintf(stderr, "Error: File %s does not exist\n", name);}
 	else {
-		if (new_size < (superblock->inode[exists].used_size & 127)){
-			for (int i=0; i<((superblock->inode[exists].used_size & 127) - new_size); i++){
+		if (new_size < (superblock->inode[exists].used_size & 127)){ // if size is reduced, clear out end blocks 
+			for (int i=0; i<((superblock->inode[exists].used_size & 127) - new_size); i++){ // update free block list and clear data blocks
 				superblock->free_block_list[(int)((superblock->inode[exists].start_block+new_size+i)/8)] = 
 					setBit(superblock->free_block_list[(int)((superblock->inode[exists].start_block+new_size+i/8))], ((superblock->inode[exists].start_block+new_size+i)%8)+1, 0);
 				clear_block(superblock->inode[exists].start_block+new_size+i);
 			}
 			superblock->inode[exists].used_size = new_size;
-		} else {
+		} else { // find space
 			bool space = false;
 			int count = 0;
 			int block = 0; 
@@ -424,21 +504,22 @@ void fs_resize(char name[5], int new_size){
 				for(int j=0; j<8; j++){
 					if (!(superblock->free_block_list[i] >> (7-j)) & 1) { count +=1; } else { count = 0; }
 					block +=1;
-					if (count == new_size ) { space = true; start_block = block-new_size+1; break; }
+					if (count == new_size ) { space = true; start_block = block-new_size+1; break; } // space found
 				}
 			}
 			if (!space) { fprintf(stderr, "Error: File %s cannot expand to size %i\n", name, new_size); }
 			else {
-				for(int j=0; j<new_size; j++){
+				for(int j=0; j<new_size; j++){ // update free block list
 					superblock->free_block_list[(int)((start_block+j)/8)] = setBit(superblock->free_block_list[(int)((start_block+j)/8)], ((start_block+j)%8)+1, 1);
 				}
 
-				for(int j=0; j<((superblock->inode[exists].used_size) & 127); j++){
+				for(int j=0; j<((superblock->inode[exists].used_size) & 127); j++){ // transfer data to new data blocks and clear old ones, update free block list
 					memcpy(blocks[start_block+j].block, blocks[(superblock->inode[exists].start_block + j)].block, sizeof(blocks[start_block+j].block));
 					clear_block(superblock->inode[exists].start_block+j);
 					superblock->free_block_list[(int)((superblock->inode[exists].start_block+j)/8)] = setBit(superblock->free_block_list[(int)((superblock->inode[exists].start_block+j)/8)], ((superblock->inode[exists].start_block+j)%8)+1, 0);
 				}
-
+				
+				// update inode attributes
 				superblock->inode[exists].start_block = start_block;
 				superblock->inode[exists].used_size = (new_size | 128);
 			}
@@ -446,50 +527,59 @@ void fs_resize(char name[5], int new_size){
 	}
 }
 
+ /**
+ * @brief Function to reorganize file blocks to reduce fragmentation (no free blocks between used blocks)
+ */
 void fs_defrag(void){
-	int cur = cwd;
+	int cur = cwd; // save actual current working directory
 	char * dir;
 	if ( cwd == 127 ) { dir = root; } else { dir = superblock->inode[cwd].name; }
-	std::map<int, int> block_map = std::map<int, int>(); // ordered map of start block and inode number
-	for (int i=0; i<126; i++){
+	std::map<int, int> block_map = std::map<int, int>(); // ordered map of start block and inode number to start from files with lowest start_block
+	for (int i=0; i<126; i++){ // populate the map
 		if((superblock->inode[i].used_size & 128)!=0 && (superblock->inode[i].dir_parent & 128)==0){
 			block_map[superblock->inode[i].start_block] = i;
 		}
 	}
 	std::map<int, int>::iterator it;
 	for(it = block_map.begin(); it!=block_map.end(); it++){
-		if(check_dir_names(dir, superblock->inode[it->second].name)!=-1){
+		if(check_dir_names(dir, superblock->inode[it->second].name)!=-1){ // if file name is found in the current working directory
 			fs_resize(superblock->inode[it->second].name, (superblock->inode[it->second].used_size & 127));
 		} else {
-			std::map<char*,std::vector<int>>::iterator dir_it;
-			for(dir_it = dir_names.begin(); dir_it!=dir_names.end(); dir_it++){
-				if(check_dir_names((dir_it->first), superblock->inode[it->second].name)!=-1){
-					cwd = (superblock->inode[it->second].dir_parent & 127);
-					fs_resize(superblock->inode[it->second].name, (superblock->inode[it->second].used_size & 127));
-				}
-			}
+			cwd = (superblock->inode[it->second].dir_parent & 127); // change current working directory to perform resize
+			fs_resize(superblock->inode[it->second].name, (superblock->inode[it->second].used_size & 127));
 		}
 	}
 	cwd = cur;
 }
 
+ /**
+ * @brief Function to change the current working directory to the given directory name
+ *
+ * @param name - directory name
+ */
 void fs_cd(char name[5]){
-	if (strcmp(name, ".")==0){
-		return;
-	} else if (strcmp(name, "..")==0){
-		if (cwd==127){ return; }
+	if (strcmp(name, ".")==0){ // stay in current working directory
+		return; 
+	} else if (strcmp(name, "..")==0){ //go to parent
+		if (cwd==127){ return; } // root has no parent
 		else{
 			cwd = (superblock->inode[cwd].dir_parent & 127);
 		}
 	} else {
 		char * dir;
 		if(cwd==127){ dir = root; } else { dir = superblock->inode[cwd].name; }
-		int index = check_dir_names(dir, name);
+		int index = check_dir_names(dir, name); // find directory in the current working directory
 		if(index!=-1 && isDir(index)){ cwd = index; }
 		else { fprintf(stderr, "Error: Directory %s does not exist\n", name); }
 	}
 }
 
+/**
+ * @brief This function handles the commands read line by line from the input file
+ *
+ * @param line - the line from the file
+ * @param line_no - line number (mostly for error handling)
+ */
 void process_command(string line, int line_no){
 	char cline[line.size()+1];
 	strcpy(cline, line.c_str());
@@ -500,34 +590,34 @@ void process_command(string line, int line_no){
 	        command_args.push_back(chars_array);
        		chars_array = strtok(NULL, " ");
     	}
-	if (cline[0]=='M' && command_args.size()==2 && strlen(command_args.at(1))<=20){
+	if (cline[0]=='M' && command_args.size()==2 && strlen(command_args.at(1))<=20){ // mount disk
 		fs_mount(command_args.at(1));
 		if (strlen(disk)!=0) { write_to_disk(disk); }
-	} else if (cline[0]=='C' && command_args.size()==3 && strlen(command_args.at(1))<=5 && stoi(command_args.at(2))<128){
+	} else if (cline[0]=='C' && command_args.size()==3 && strlen(command_args.at(1))<=5 && stoi(command_args.at(2))<128){ // create file/directory
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
 		else{
 			fs_create(command_args.at(1), stoi(command_args.at(2)));
 			write_to_disk(disk);
 		}
-	} else if (cline[0]=='D' && command_args.size()==2 && strlen(command_args.at(1))<=5){
+	} else if (cline[0]=='D' && command_args.size()==2 && strlen(command_args.at(1))<=5){ // delete file/directory
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
 		else{
 			fs_delete(command_args.at(1));
 			write_to_disk(disk);
 		}
-	} else if (cline[0]=='R' && command_args.size()==3 && strlen(command_args.at(1))<=5 && stoi(command_args.at(2))<128 && stoi(command_args.at(2))>=0){
+	} else if (cline[0]=='R' && command_args.size()==3 && strlen(command_args.at(1))<=5 && stoi(command_args.at(2))<128 && stoi(command_args.at(2))>=0){ // read from file
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
 		else{
 			fs_read(command_args.at(1), stoi(command_args.at(2)));
 			write_to_disk(disk);
 		}
-	} else if (cline[0]=='W' && command_args.size()==3 && strlen(command_args.at(1))<=5 && stoi(command_args.at(2))<128 && stoi(command_args.at(2))>=0){
+	} else if (cline[0]=='W' && command_args.size()==3 && strlen(command_args.at(1))<=5 && stoi(command_args.at(2))<128 && stoi(command_args.at(2))>=0){ // write to file
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
 		else{
 			fs_write(command_args.at(1), stoi(command_args.at(2)));
 			write_to_disk(disk);
 		}
-	} else if (cline[0]=='B' && command_args.size()>1){
+	} else if (cline[0]=='B' && command_args.size()>1){ // update data buffer
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
 		else{
 			uint8_t b[1024];
@@ -536,22 +626,22 @@ void process_command(string line, int line_no){
 			}
 			fs_buff(b);
 		}
-	} else if (cline[0]=='L' && command_args.size()==1){
+	} else if (cline[0]=='L' && command_args.size()==1){ // list files and directories in current working directory
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
 		else{ fs_ls(); }
-	} else if (cline[0]=='E' && command_args.size()==3 && strlen(command_args.at(1))<=5){
+	} else if (cline[0]=='E' && command_args.size()==3 && strlen(command_args.at(1))<=5){ // resize file
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
 		else{
 			fs_resize(command_args.at(1), stoi(command_args.at(2)));
 			write_to_disk(disk);
 		}
-	} else if (cline[0]=='O' && command_args.size()==1){
+	} else if (cline[0]=='O' && command_args.size()==1){ // defragment disk
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
 		else{
 			fs_defrag();
 			write_to_disk(disk);
 		}
-	} else if (cline[0]=='Y' && command_args.size()==2 && strlen(command_args.at(1))<=5){
+	} else if (cline[0]=='Y' && command_args.size()==2 && strlen(command_args.at(1))<=5){ // change working directory
 		if(strlen(disk)==0){ fprintf(stderr, "Error: No file system is mounted\n"); }
 		else{ fs_cd(command_args.at(1)); }
 	} else {
@@ -565,7 +655,7 @@ int main(int argc, char *argv[]){
 		fprintf(stderr, "Error: Incorrect number of arguments");
 	}
 	else{
-		input_file = argv[1];	
+		input_file = argv[1];
 		string line;
 		ifstream inFile;
 		inFile.open(input_file);
