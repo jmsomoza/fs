@@ -39,7 +39,8 @@ The ten commands our file system is able to handle are:
 For testing and debugging, I made use of the four sample test cases, as well as the consistency checks made available to us on eClass. All of the test cases have passed.
 
 <h4>Sources</h4>
-  * Class notes and slides on file systems and their implementation
-  * [C++ Reference Page](http://www.cplusplus.com/reference/)
-  * Various StackOverflow pages for debugging
-  * eClass Discussion Board
+
+ * Class notes and slides on file systems and their implementation
+ * [C++ Reference Page](http://www.cplusplus.com/reference/)
+ * Various StackOverflow pages for debugging
+ * eClass Discussion Board
